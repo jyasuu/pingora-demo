@@ -1,14 +1,45 @@
-# Pingora Demo - HTTP Load Balancer
+# Pingora Demo - Complete Proxy Learning Suite
 
-A production-ready HTTP reverse proxy and load balancer built with **Pingora** (Cloudflare's Rust framework).
+A comprehensive collection of **Pingora** (Cloudflare's Rust framework) proxy implementations demonstrating various patterns and features. Each example runs as a separate binary, allowing you to learn different proxy concepts independently.
 
-## 🚀 Features
+## 🚀 Available Examples
 
-- **Round-Robin Load Balancing**: Distributes requests across multiple backend servers
-- **Health Checks**: Automatic TCP health monitoring every 30 seconds
-- **Request/Response Filtering**: Custom header manipulation and transformation
-- **High Performance**: Built on Pingora's async Rust foundation
-- **Production Ready**: Handles connection pooling, error handling, and graceful operations
+### **1. Load Balancer** (`load-balancer`) - Port 6188
+**Basic round-robin load balancer with health checks**
+- Round-robin backend selection across 3 servers
+- TCP health checks every 30 seconds  
+- Custom request/response header manipulation
+- Production-ready error handling
+
+### **2. Path Router** (`path-router`) - Port 6189
+**Intelligent request routing based on URL paths**
+- `/api/*` → API backends (jsonplaceholder, httpbin)
+- `/static/*`, `/assets/*`, `/cdn/*` → CDN backends
+- `/*` → Default backends (example.com, httpbin)
+- Service-specific headers and caching policies
+
+### **3. Rate Limiter** (`rate-limiter`) - Port 6190
+**Per-IP request rate limiting with configurable windows**
+- 10 requests per 60 seconds per IP (configurable)
+- In-memory request tracking with automatic cleanup
+- Detailed rate limit headers and JSON error responses
+- Real client IP detection (X-Forwarded-For support)
+
+### **4. Circuit Breaker** (`circuit-breaker`) - Port 6191
+**Fault tolerance with automatic failure detection and recovery**
+- Three states: Closed, Open, Half-Open
+- Configurable failure thresholds (5 failures → open)
+- Automatic recovery testing (3 successes → closed)
+- Backup backend support when circuit is open
+- Comprehensive metrics and state tracking
+
+### **5. Authentication Proxy** (`auth-proxy`) - Port 6192
+**Security middleware with multiple authentication methods**
+- Basic Authentication support (`admin:admin123`, `user:user123`)
+- Bearer token validation (custom JWT-like tokens)
+- Protected paths: `/admin`, `/api/protected`, `/dashboard`
+- User role management and token refresh
+- Secure header forwarding to upstream
 
 ## 🏗️ Architecture
 
@@ -43,16 +74,34 @@ pingora-proxy = "0.6"
 pingora-load-balancing = "0.6"
 ```
 
-## 🛠️ Usage
+## 🛠️ Quick Start
 
-### Start the Load Balancer
+### Build All Examples
 ```bash
-cargo run
+cargo build --all-targets
 ```
 
-The server will start on `http://127.0.0.1:6188`
+### Run Individual Examples
+```bash
+# Load Balancer (Port 6188)
+cargo run --bin load-balancer
 
-### Test Load Balancing
+# Path Router (Port 6189)
+cargo run --bin path-router
+
+# Rate Limiter (Port 6190)
+cargo run --bin rate-limiter
+
+# Circuit Breaker (Port 6191)
+cargo run --bin circuit-breaker
+
+# Authentication Proxy (Port 6192)
+cargo run --bin auth-proxy
+```
+
+### Test Examples
+
+#### **Load Balancer Testing**
 ```bash
 # Test round-robin distribution
 for i in {1..5}; do
@@ -60,24 +109,66 @@ for i in {1..5}; do
   curl -s http://127.0.0.1:6188/ | head -n 3
   echo "---"
 done
-```
 
-### Test Specific Backends
-```bash
-# HTTPBin testing
+# Test specific backends
 curl -H "Host: httpbin.org" http://127.0.0.1:6188/get
-
-# Example.com
 curl -H "Host: example.com" http://127.0.0.1:6188/
-
-# JSON API
-curl -H "Host: jsonplaceholder.typicode.com" http://127.0.0.1:6188/posts/1
 ```
 
-### Inspect Custom Headers
+#### **Path Router Testing**
 ```bash
-# View proxy-added headers
-curl -v http://127.0.0.1:6188/ 2>&1 | grep -E "(x-proxy|x-load-balancer|x-forwarded-by)"
+# API requests → API backends
+curl http://127.0.0.1:6189/api/posts/1
+
+# Static content → CDN backends
+curl http://127.0.0.1:6189/static/app.js
+
+# Default → Default backends
+curl http://127.0.0.1:6189/
+```
+
+#### **Rate Limiter Testing**
+```bash
+# Normal request
+curl http://127.0.0.1:6190/get
+
+# Test rate limiting (run quickly)
+for i in {1..15}; do 
+  curl -w "Status: %{response_code}\n" http://127.0.0.1:6190/get
+done
+
+# Check rate limit headers
+curl -v http://127.0.0.1:6190/get 2>&1 | grep 'X-Rate'
+```
+
+#### **Circuit Breaker Testing**
+```bash
+# Normal requests
+curl http://127.0.0.1:6191/get
+
+# Trigger failures to open circuit
+for i in {1..6}; do 
+  curl http://127.0.0.1:6191/status/500
+done
+
+# Test circuit breaker response
+curl -v http://127.0.0.1:6191/get
+```
+
+#### **Authentication Proxy Testing**
+```bash
+# Public access (no auth required)
+curl http://127.0.0.1:6192/get
+
+# Protected access (requires auth)
+curl http://127.0.0.1:6192/admin
+
+# Basic authentication
+curl -u admin:admin123 http://127.0.0.1:6192/admin
+
+# Bearer token authentication
+TOKEN=$(curl -u admin:admin123 -v http://127.0.0.1:6192/admin 2>&1 | grep 'X-Refresh-Token' | cut -d' ' -f3)
+curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:6192/dashboard
 ```
 
 ## 🔧 Code Structure
@@ -136,23 +227,28 @@ let peer = Box::new(HttpPeer::new(upstream, false, "".to_string()));
 - **Rust Async**: Understanding async/await patterns
 - **HTTP Proxies**: Reverse proxy concepts and patterns
 
-## 🚀 Next Steps & Practice Ideas
+## 🚀 Learning Path
 
-### Beginner
-- **Path-based routing**: Route `/api/*` to different backends
-- **Request logging**: Add structured logging with `tracing`
-- **Configuration**: Load backends from config file
+### **Beginner Level**
+1. **Start with Load Balancer** - Learn basic Pingora concepts and ProxyHttp trait
+2. **Explore Path Router** - Understand request routing and backend selection
+3. **Study Code Patterns** - Compare implementations across examples
 
-### Intermediate  
-- **Rate limiting**: Implement per-IP request throttling
-- **Circuit breaker**: Handle failing backend gracefully
-- **Weighted load balancing**: Assign different weights to backends
+### **Intermediate Level**  
+4. **Deploy Rate Limiter** - Learn state management and middleware patterns
+5. **Test Circuit Breaker** - Understand resilience and failure handling
+6. **Practice Configuration** - Modify thresholds, timeouts, and policies
 
-### Advanced
-- **TLS termination**: Handle HTTPS connections
-- **Authentication**: Add JWT or basic auth middleware
-- **Metrics**: Integrate Prometheus monitoring
-- **Dynamic configuration**: Hot-reload backend changes
+### **Advanced Level**
+7. **Implement Auth Proxy** - Master security patterns and token handling
+8. **Combine Multiple Features** - Create a proxy using multiple patterns
+9. **Add Observability** - Integrate metrics, tracing, and monitoring
+
+### **Expert Level**
+- **Custom Middleware**: Build your own proxy features
+- **Performance Optimization**: Benchmark and tune configurations
+- **Production Deployment**: Add logging, monitoring, and scaling
+- **TLS and Security**: Implement certificate management and advanced auth
 
 ## 🐛 Troubleshooting
 
@@ -184,15 +280,81 @@ RUST_LOG=debug cargo run
 - **Zero-Copy**: Minimal memory allocation in hot paths
 - **Production Scale**: Handles thousands of concurrent connections
 
-## 🤝 Contributing
+## 📁 Project Structure
 
-This is a learning project for Pingora development. Feel free to:
+```
+├── src/
+│   ├── main.rs              # Load Balancer (basic example)
+│   └── bin/
+│       ├── path_router.rs   # Path-based routing
+│       ├── rate_limiter.rs  # Per-IP rate limiting
+│       ├── circuit_breaker.rs # Fault tolerance
+│       └── auth_proxy.rs    # Authentication middleware
+├── Cargo.toml               # Dependencies and binary definitions
+├── README.md                # This comprehensive guide
+├── EXAMPLES.md              # Detailed examples documentation
+└── TODO.md                  # Advanced Pingora guide (Chinese)
+```
 
-- Add new load balancing algorithms
-- Implement additional middleware
-- Enhance monitoring and observability
-- Create performance benchmarks
+## 🧪 Running All Examples Simultaneously
+
+You can run multiple examples at once on different ports:
+
+```bash
+# Terminal 1 - Load Balancer
+cargo run --bin load-balancer &
+
+# Terminal 2 - Path Router  
+cargo run --bin path-router &
+
+# Terminal 3 - Rate Limiter
+cargo run --bin rate-limiter &
+
+# Terminal 4 - Circuit Breaker
+cargo run --bin circuit-breaker &
+
+# Terminal 5 - Auth Proxy
+cargo run --bin auth-proxy &
+
+# Test all examples
+curl http://127.0.0.1:6188/get    # Load balancer
+curl http://127.0.0.1:6189/api/posts/1  # Path router
+curl http://127.0.0.1:6190/get    # Rate limiter
+curl http://127.0.0.1:6191/get    # Circuit breaker
+curl -u admin:admin123 http://127.0.0.1:6192/admin  # Auth proxy
+```
+
+## 📚 Additional Resources
+
+- **`EXAMPLES.md`** - Detailed documentation for each example
+- **`TODO.md`** - Comprehensive Pingora implementation guide (Chinese)
+- **[Pingora GitHub](https://github.com/cloudflare/pingora)** - Official repository
+- **[Pingora Documentation](https://github.com/cloudflare/pingora/tree/main/docs)** - Official docs
+
+## 🤝 Contributing & Next Steps
+
+This is a comprehensive learning project for Pingora development. Ideas for expansion:
+
+### **New Examples**
+- **WebSocket Proxy**: Real-time connection handling
+- **gRPC Gateway**: Protocol translation and routing
+- **Caching Proxy**: Response caching with TTL and invalidation
+- **Metrics Collector**: Prometheus integration and dashboards
+
+### **Enhanced Features**
+- **Configuration Files**: YAML/TOML-based configuration
+- **Hot Reloading**: Dynamic configuration updates
+- **Health Dashboards**: Web UI for monitoring proxy status
+- **Load Testing**: Automated performance benchmarks
+
+### **Production Features**
+- **TLS Termination**: Certificate management and HTTPS
+- **Distributed Tracing**: OpenTelemetry integration
+- **Service Discovery**: Consul/etcd integration
+- **Container Deployment**: Docker and Kubernetes manifests
 
 ---
 
 **Built with ❤️ using Pingora and Rust**
+
+*Ready to master modern proxy development? Start with any example and work your way up!*
