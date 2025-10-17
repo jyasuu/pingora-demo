@@ -79,8 +79,7 @@ impl ProxyHttp for LB {
     }
 }
 
-#[tokio::main(flavor = "multi_thread")]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
     println!("🚀 Starting Pingora Load Balancer Demo...");
     
     // Create backends for load balancing
