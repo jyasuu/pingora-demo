@@ -23,6 +23,10 @@ path = "src/bin/circuit_breaker.rs"
 name = "auth-proxy"
 path = "src/bin/auth_proxy.rs"
 
+[[bin]]
+name = "cors-proxy"
+path = "src/bin/cors_proxy.rs"
+
 [dependencies]
 async-trait = "0.1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
