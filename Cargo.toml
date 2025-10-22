@@ -32,9 +32,9 @@ async-trait = "0.1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 anyhow = "1.0"
 
-# Try latest stable versions
-pingora = "0.6"
-pingora-proxy = "0.6"
+# Try latest stable versions with TLS support
+pingora = { version = "0.6", features = ["boringssl"] }
+pingora-proxy = "0.6" 
 pingora-load-balancing = "0.6"
 
 # Additional dependencies for examples

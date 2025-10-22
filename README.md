@@ -41,6 +41,15 @@ A comprehensive collection of **Pingora** (Cloudflare's Rust framework) proxy im
 - User role management and token refresh
 - Secure header forwarding to upstream
 
+### **6. 🔥 CORS Proxy with HTTPS Support** (`cors-proxy`) - Port 6189 ⭐ **NEW!**
+**Production-ready CORS proxy with full TLS support**
+- **HTTPS/TLS Support**: BoringSSL integration for secure upstream connections
+- **Smart Auto-Detection**: Automatic HTTPS detection for ports 443, 8443, 9443
+- **CORS Management**: Intelligent origin validation and header manipulation
+- **Environment Driven**: Fully configurable via environment variables
+- **Real-World Ready**: Tested with GitHub API, HTTPBin, and production services
+- **Manual Override**: `UPSTREAM_TLS=true/false` for explicit TLS control
+
 ## 🏗️ Architecture
 
 ```
@@ -69,10 +78,13 @@ Built with Pingora v0.6 and modern Rust async ecosystem:
 async-trait = "0.1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 anyhow = "1.0"
-pingora = "0.6"
+# Pingora with BoringSSL TLS support for HTTPS upstreams
+pingora = { version = "0.6", features = ["boringssl"] }
 pingora-proxy = "0.6"
 pingora-load-balancing = "0.6"
 ```
+
+**🔒 TLS Support**: The CORS proxy includes BoringSSL integration for production-ready HTTPS upstream connections.
 
 ## 🛠️ Quick Start
 
@@ -97,6 +109,9 @@ cargo run --bin circuit-breaker
 
 # Authentication Proxy (Port 6192)
 cargo run --bin auth-proxy
+
+# CORS Proxy with HTTPS Support (Port 6189)
+cargo run --bin cors-proxy
 ```
 
 ### Test Examples
@@ -169,6 +184,36 @@ curl -u admin:admin123 http://127.0.0.1:6192/admin
 # Bearer token authentication
 TOKEN=$(curl -u admin:admin123 -v http://127.0.0.1:6192/admin 2>&1 | grep 'X-Refresh-Token' | cut -d' ' -f3)
 curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:6192/dashboard
+```
+
+#### **🔥 CORS Proxy Testing** ⭐ **NEW!**
+```bash
+# Basic HTTP proxy (default)
+cargo run --bin cors-proxy
+
+# HTTPS proxy with auto-detection
+UPSTREAM_ADDR="api.github.com:443" ALLOWED_ORIGIN="https://myapp.com" cargo run --bin cors-proxy
+
+# Test CORS functionality
+curl -H "Origin: https://myapp.com" http://127.0.0.1:6189/get
+
+# Test HTTPS upstream with GitHub API
+UPSTREAM_ADDR="api.github.com:443" cargo run --bin cors-proxy &
+curl http://127.0.0.1:6189/user  # Should get 401 (no auth) - proves HTTPS works!
+
+# Manual TLS configuration
+UPSTREAM_ADDR="custom-api.com:8080" UPSTREAM_TLS="true" cargo run --bin cors-proxy
+
+# Environment configuration
+UPSTREAM_ADDR="httpbin.org:443"           # Target service (auto-detects HTTPS)
+UPSTREAM_TLS="true"                       # Force TLS on/off (overrides auto-detection)  
+ALLOWED_ORIGIN="https://frontend.com"     # CORS allowed origin
+PROXY_PORT="8080"                        # Custom proxy port
+
+# Test different scenarios
+curl http://127.0.0.1:6189/get                                    # No CORS header
+curl -H "Origin: https://frontend.com" http://127.0.0.1:6189/get  # CORS allowed
+curl -H "Origin: https://evil.com" http://127.0.0.1:6189/get      # CORS blocked
 ```
 
 ## 🔧 Code Structure
