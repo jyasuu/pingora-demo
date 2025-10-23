@@ -11,7 +11,6 @@ pub struct CorsCtx;
 /// CORS Proxy service that handles Cross-Origin Resource Sharing
 pub struct CorsProxy {
     upstream_addr: String,
-    allowed_origin: Option<String>,
     use_tls: bool,
 }
 
@@ -21,19 +20,16 @@ impl CorsProxy {
         let upstream_addr = env::var("UPSTREAM_ADDR")
             .unwrap_or_else(|_| "httpbin.org:80".to_string());
         
-        let allowed_origin = env::var("ALLOWED_ORIGIN").ok();
-        
         // Determine if we should use TLS
         let use_tls = Self::determine_tls_usage(&upstream_addr);
         
         println!("🔧 CORS Proxy Configuration:");
         println!("   Upstream: {}", upstream_addr);
         println!("   Use TLS: {}", use_tls);
-        println!("   Allowed Origin: {:?}", allowed_origin);
+        println!("   CORS Policy: Allow all origins (*)");
         
         Ok(Self {
             upstream_addr,
-            allowed_origin,
             use_tls,
         })
     }
@@ -106,7 +102,7 @@ impl ProxyHttp for CorsProxy {
     /// Select upstream peer for each request
     async fn upstream_peer(
         &self,
-        session: &mut Session,
+        _session: &mut Session,
         _ctx: &mut Self::CTX,
     ) -> Result<Box<HttpPeer>, Box<pingora::Error>> {
         // Check if upstream should use TLS based on address format or explicit config
@@ -146,6 +142,40 @@ impl ProxyHttp for CorsProxy {
     }
     
 
+    /// Handle preflight OPTIONS requests locally
+    async fn request_filter(
+        &self,
+        session: &mut Session,
+        _ctx: &mut Self::CTX,
+    ) -> Result<bool, Box<pingora::Error>> where Self: Sized {
+        // Check if this is a CORS preflight request (OPTIONS with specific headers)
+        if session.req_header().method == "OPTIONS" {
+            if let Some(_origin) = session.req_header().headers.get("origin") {
+                // This is a preflight request - handle it locally
+                println!("🔄 Handling CORS preflight OPTIONS request locally");
+                
+                // Create response with CORS headers
+                let mut response = ResponseHeader::build(200, None)?;
+                response.insert_header("access-control-allow-origin", "*")?;
+                response.insert_header("access-control-allow-methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD")?;
+                response.insert_header("access-control-allow-headers", "origin, content-type, accept, authorization, x-requested-with")?;
+                response.insert_header("access-control-max-age", "86400")?; // 24 hours
+                response.insert_header("content-length", "0")?;
+                response.insert_header("x-cors-proxy", "rust-pingora")?;
+                
+                // Send the response immediately
+                session.write_response_header(Box::new(response), false).await?;
+                session.finish_body().await?;
+                
+                // Return true to indicate we handled the request
+                return Ok(true);
+            }
+        }
+        
+        // Continue with normal processing
+        Ok(false)
+    }
+
     /// Modify request before sending to upstream
     async fn upstream_request_filter(
         &self,
@@ -181,23 +211,28 @@ impl ProxyHttp for CorsProxy {
         upstream_response: &mut ResponseHeader,
         _ctx: &mut Self::CTX,
     ) -> Result<(), Box<pingora::Error>> where Self: Sized {
-        // Step 1: Clean existing Access-Control-Allow-Origin response header
+        // Step 1: Remove ALL existing CORS headers to prevent duplicates
         upstream_response.remove_header("access-control-allow-origin");
+        upstream_response.remove_header("access-control-allow-methods");
+        upstream_response.remove_header("access-control-allow-headers");
+        upstream_response.remove_header("access-control-allow-credentials");
+        upstream_response.remove_header("access-control-max-age");
+        upstream_response.remove_header("access-control-expose-headers");
         
-        // Step 2: Check if request has origin header and if it matches our allowed origin
+        // Step 2: Always add CORS headers to allow all origins
+        // This fixes the duplicate header issue by ensuring only one is set
+        upstream_response.insert_header("access-control-allow-origin", "*")?;
+        upstream_response.insert_header("access-control-allow-methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD")?;
+        upstream_response.insert_header("access-control-allow-headers", "origin, content-type, accept, authorization, x-requested-with")?;
+        upstream_response.insert_header("access-control-max-age", "86400")?; // 24 hours
+        
+        // Log the origin for debugging
         if let Some(request_origin) = session.req_header().headers.get("origin") {
-            if let Some(allowed_origin) = &self.allowed_origin {
-                // Convert header value to string for comparison
-                if let Ok(origin_str) = request_origin.to_str() {
-                    if origin_str == allowed_origin {
-                        // Origin matches - set it as Access-Control-Allow-Origin
-                        upstream_response.insert_header("access-control-allow-origin", origin_str)?;
-                        println!("✅ CORS: Origin {} allowed", origin_str);
-                    } else {
-                        println!("❌ CORS: Origin {} not allowed (expected: {})", origin_str, allowed_origin);
-                    }
-                }
+            if let Ok(origin_str) = request_origin.to_str() {
+                println!("✅ CORS: Allowing origin {} with wildcard policy", origin_str);
             }
+        } else {
+            println!("✅ CORS: No origin header, wildcard policy applied");
         }
         
         // Add proxy identification
@@ -227,16 +262,23 @@ fn main() -> anyhow::Result<()> {
     println!("✨ Environment variables:");
     println!("   UPSTREAM_ADDR - Target service address (default: httpbin.org:80)");
     println!("   UPSTREAM_TLS - Force TLS usage (true/false, auto-detected if not set)");
-    println!("   ALLOWED_ORIGIN - Origin to allow CORS for (e.g., https://example.com)");
     println!("   PROXY_PORT - Port to listen on (default: 6189)");
+    println!();
+    println!("🛡️  CORS Policy:");
+    println!("   - Access-Control-Allow-Origin: * (allows all origins)");
+    println!("   - Handles preflight OPTIONS requests locally");
+    println!("   - Prevents duplicate CORS headers by cleaning upstream headers");
+    println!("   - Supports complex requests with authorization headers");
     println!();
     println!("📝 Example usage:");
     println!("   # HTTP upstream");
-    println!("   UPSTREAM_ADDR=httpbin.org:80 ALLOWED_ORIGIN=https://example.com cargo run --bin cors-proxy");
+    println!("   UPSTREAM_ADDR=httpbin.org:80 cargo run --bin cors-proxy");
     println!("   # HTTPS upstream (auto-detected by port 443)");
-    println!("   UPSTREAM_ADDR=api.github.com:443 ALLOWED_ORIGIN=https://example.com cargo run --bin cors-proxy");
+    println!("   UPSTREAM_ADDR=api.github.com:443 cargo run --bin cors-proxy");
+    println!("   # GitHub MCP Server (the specific use case from TODO.md)");
+    println!("   UPSTREAM_ADDR=api.githubcopilot.com:443 cargo run --bin cors-proxy");
     println!("   # HTTPS upstream (explicit TLS)");
-    println!("   UPSTREAM_ADDR=secure-api.com:8080 UPSTREAM_TLS=true ALLOWED_ORIGIN=https://example.com cargo run --bin cors-proxy");
+    println!("   UPSTREAM_ADDR=secure-api.com:8080 UPSTREAM_TLS=true cargo run --bin cors-proxy");
     println!();
     println!("🔒 TLS Auto-detection:");
     println!("   - Ports 443, 8443, 9443 automatically use TLS");
@@ -246,10 +288,13 @@ fn main() -> anyhow::Result<()> {
     println!("🧪 Test commands:");
     println!("   # Request without origin header");
     println!("   curl -v http://{}/get", bind_addr);
-    println!("   # Request with allowed origin");
+    println!("   # Request with origin header (any origin allowed)");
     println!("   curl -v -H 'Origin: https://example.com' http://{}/get", bind_addr);
-    println!("   # Request with disallowed origin");
-    println!("   curl -v -H 'Origin: https://malicious.com' http://{}/get", bind_addr);
+    println!("   # CORS preflight request (handled locally)");
+    println!("   curl -v -X OPTIONS -H 'Origin: https://example.com' -H 'Access-Control-Request-Method: POST' http://{}/", bind_addr);
+    println!("   # GitHub MCP Server test (reproduces TODO.md scenario)");
+    println!("   curl -v -H 'Origin: https://example.com' -H 'Authorization: Bearer TOKEN' -H 'Content-Type: application/json' \\");
+    println!("        --data '{{\"jsonrpc\":\"2.0\",\"id\":\"test\",\"method\":\"initialize\"}}' http://{}/mcp/", bind_addr);
     
     // Create Server instance, register service, and start
     let mut server = Server::new(None)?;

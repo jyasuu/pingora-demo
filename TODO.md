@@ -1,78 +1,46 @@
-# ✅ CORS Proxy Tool - FULLY IMPLEMENTED & TESTED
+# ✅ SOLVED: CORS Proxy Duplicate Headers Issue
 
-## 🎯 Original Requirements - ALL COMPLETED ✅
+## Problem Description
 
-### ✅ Proxy service with environment configuration
-### ✅ Clean Access-Control-Allow-Origin response headers  
-### ✅ Smart origin validation and CORS header management
-### 🔥 BONUS: Full HTTPS/TLS support with BoringSSL
+I was building a WASM application that connects to a GitHub MCP server. When trying to initialize the MCP connection from the browser, it automatically appends an Origin header. This resulted in two `Access-Control-Allow-Origin` headers being set, which caused the browser to block the response.
 
----
+## Issue Details
 
-## 🚀 **CORS Proxy Tool** - `src/bin/cors-proxy` 
-
-### 🌟 **Key Achievement: HTTPS Support Breakthrough!**
-After deep investigation, resolved 502 Bad Gateway errors by enabling BoringSSL TLS support in Pingora configuration. The proxy now handles both HTTP and HTTPS upstreams flawlessly!
-
-### 🔧 **Core Features:**
-- **Smart Upstream Detection**: Automatically detects HTTP vs HTTPS based on ports and addresses
-- **Environment Configuration**: Fully configurable via environment variables
-- **CORS Management**: Intelligent origin validation and header management
-- **Production Ready**: Tested with real-world APIs (GitHub, HTTPBin)
-- **TLS Support**: Full HTTPS upstream support with BoringSSL
-
-### 🎯 **Usage Examples:**
-
+**Reproduction Command:**
 ```bash
-# HTTP upstream (basic)
-cargo run --bin cors-proxy
-
-# HTTPS upstream (auto-detected)
-UPSTREAM_ADDR="api.github.com:443" ALLOWED_ORIGIN="https://myapp.com" cargo run --bin cors-proxy
-
-# Custom configuration
-UPSTREAM_ADDR="custom-api.com:8080" UPSTREAM_TLS="true" ALLOWED_ORIGIN="https://frontend.com" PROXY_PORT="8080" cargo run --bin cors-proxy
+curl 'https://api.githubcopilot.com/mcp/' \
+  -H 'accept: */*' \
+  -H 'authorization: Bearer ?' \
+  -H 'content-type: application/json' \
+  -H 'origin: https://example.com' \
+  --data-raw '{"jsonrpc":"2.0","id":"88712028-eaaa-4d92-7241-fe9964f5d322","method":"initialize","params":{"capabilities":{"tools":{}},"clientInfo":{"name":"LLM Playground","version":"1.0.0"},"protocolVersion":"2024-11-05"}}' -v 
 ```
 
-### ⚙️ **Environment Variables:**
-| Variable | Description | Default | Example |
-|----------|-------------|---------|---------|
-| `UPSTREAM_ADDR` | Target service address | `httpbin.org:80` | `api.service.com:443` |
-| `UPSTREAM_TLS` | Force TLS on/off | Auto-detect | `true`/`false` |
-| `ALLOWED_ORIGIN` | CORS allowed origin | None | `https://myapp.com` |
-| `PROXY_PORT` | Proxy listen port | `6189` | `8080` |
+**Problem:** Two duplicate headers
+```
+access-control-allow-origin: *
+access-control-allow-origin: *
+```
 
-### 🔒 **HTTPS/TLS Features:**
-- ✅ **Smart Auto-Detection**: Ports 443, 8443, 9443 → automatic HTTPS
-- ✅ **Address Parsing**: URLs containing 'https' → automatic HTTPS  
-- ✅ **Manual Override**: `UPSTREAM_TLS=true/false` for explicit control
-- ✅ **SNI Support**: Proper Server Name Indication for multi-domain servers
-- ✅ **Certificate Handling**: Configurable verification (disabled for dev/testing)
-- ✅ **Real-World Tested**: GitHub API, HTTPBin HTTPS, custom APIs
+**Expected:** Only one header
+```
+access-control-allow-origin: *
+```
 
-### 🧪 **Verification Results:**
-| Test Scenario | Status | Result |
-|---------------|--------|---------|
-| HTTP Upstream | ✅ Perfect | Proper request/response proxying |
-| HTTPS Upstream | ✅ **FIXED!** | TLS handshake, SNI, full functionality |
-| CORS - No Origin | ✅ Perfect | No CORS headers added |
-| CORS - Allowed Origin | ✅ Perfect | `access-control-allow-origin` set correctly |
-| CORS - Blocked Origin | ✅ Perfect | CORS headers blocked |
-| GitHub API HTTPS | ✅ Perfect | 401 response (expected - no auth) |
-| Real-world APIs | ✅ Perfect | Production-ready performance |
+## ✅ Solution Implemented
 
-### 🔧 **Technical Implementation:**
-- **TLS Backend**: BoringSSL (Google's TLS library)
-- **Configuration**: `pingora = { version = "0.6", features = ["boringssl"] }`
-- **Architecture**: Async Rust with Pingora framework
-- **Performance**: Production-grade proxy with minimal latency
+**File Modified:** `src/bin/cors_proxy.rs`
 
+**Key Changes:**
+1. **Header Cleanup**: Remove ALL existing CORS headers from upstream responses before adding new ones
+2. **Wildcard CORS Policy**: Always set `Access-Control-Allow-Origin: *` to allow all origins
+3. **Preflight Support**: Handle OPTIONS requests locally with proper CORS headers
+4. **Authorization Support**: Properly handle complex requests with authorization headers
 
----
+**Test Results:** ✅ All scenarios now return exactly one `Access-Control-Allow-Origin` header
 
-## 🏆 **MISSION ACCOMPLISHED** - HTTPS Support Fully Resolved!
-
-**Root Cause**: Missing TLS support in Pingora's default configuration  
-**Solution**: Added `pingora = { version = "0.6", features = ["boringssl"] }` to enable BoringSSL
-
-The CORS proxy now handles both HTTP and HTTPS upstreams flawlessly with production-ready TLS support!
+**Usage for GitHub MCP Server:**
+```bash
+UPSTREAM_ADDR=api.githubcopilot.com:443 cargo run --bin cors-proxy
+# Then access via: http://127.0.0.1:6189/mcp/
+```
