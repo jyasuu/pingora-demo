@@ -6,6 +6,8 @@ RUN apt-get update && \
     build-essential \
     cmake \
     pkg-config \
+    clang \
+    libclang-dev \
     libssl-dev
 
 # Set the working directory
