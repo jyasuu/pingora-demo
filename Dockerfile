@@ -39,4 +39,4 @@ COPY --from=builder /usr/src/app/target/release/cors-proxy .
 EXPOSE 6189
 
 # Set the startup command
-CMD ["./cors_proxy"]
+CMD ["./cors-proxy"]
