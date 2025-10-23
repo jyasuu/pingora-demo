@@ -34,7 +34,7 @@ ENV LC_ALL en_US.UTF-8
 WORKDIR /app
 
 # Copy the compiled binary from the build stage
-COPY --from=builder /usr/src/app/target/release/cors_proxy .
+COPY --from=builder /usr/src/app/target/release/cors-proxy .
 
 EXPOSE 6189
 
