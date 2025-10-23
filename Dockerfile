@@ -1,6 +1,13 @@
 # Stage 1: Build
 FROM rust:1.85.1 AS builder
 
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    pkg-config \
+    libssl-dev
+
 # Set the working directory
 WORKDIR /usr/src/app
 
