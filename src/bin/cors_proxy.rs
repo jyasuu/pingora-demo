@@ -254,7 +254,7 @@ fn main() -> anyhow::Result<()> {
     
     // Get port from environment or use default
     let port = env::var("PROXY_PORT").unwrap_or_else(|_| "6189".to_string());
-    let bind_addr = format!("127.0.0.1:{}", port);
+    let bind_addr = format!("0.0.0.0:{}", port);
     
     proxy.add_tcp(&bind_addr);
     
