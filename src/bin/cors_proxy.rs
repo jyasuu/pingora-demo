@@ -285,6 +285,37 @@ impl ProxyHttp for CorsProxy {
         
         upstream_response.insert_header("access-control-max-age", "86400")?; // 24 hours
         
+        // Step 3: Add Access-Control-Expose-Headers to make ALL response headers visible to WASM
+        // This is the key fix for the TODO.md issue - without this, WASM can't see custom response headers
+        let expose_headers = if self.allow_any_headers {
+            // Most permissive - expose all headers (fixes WASM visibility issue)
+            "*".to_string()
+        } else {
+            // Build comprehensive list of commonly needed response headers for WASM
+            let response_headers = vec![
+                // Standard response headers that might be hidden
+                "server", "date", "etag", "last-modified", "cache-control", "expires",
+                "content-encoding", "content-language", "content-range", "content-disposition",
+                // Custom response headers commonly used by APIs
+                "x-request-id", "x-correlation-id", "x-trace-id", "x-session-id",
+                "x-rate-limit-remaining", "x-rate-limit-reset", "x-rate-limit-limit",
+                "x-response-time", "x-server-id", "x-version", "x-api-version",
+                // MCP specific response headers
+                "mcp-response-id", "mcp-server-version", "mcp-session-state", "mcp-session-id",
+                // Authentication related response headers
+                "x-auth-expires", "x-token-expires", "x-refresh-token",
+                // GitHub API specific headers (for the MCP use case)
+                "x-github-request-id", "x-github-media-type", "x-ratelimit-remaining",
+                "x-ratelimit-reset", "x-ratelimit-limit", "x-oauth-scopes",
+                // General security and debugging headers
+                "x-content-type-options", "x-frame-options", "x-xss-protection",
+                "strict-transport-security", "x-powered-by"
+            ].join(", ");
+            response_headers
+        };
+        
+        upstream_response.insert_header("access-control-expose-headers", &expose_headers)?;
+        
         // Log the origin for debugging
         if let Some(request_origin) = session.req_header().headers.get("origin") {
             if let Ok(origin_str) = request_origin.to_str() {
@@ -327,6 +358,7 @@ fn main() -> anyhow::Result<()> {
     println!();
     println!("🛡️  CORS Policy:");
     println!("   - Access-Control-Allow-Origin: * (allows all origins)");
+    println!("   - Access-Control-Expose-Headers: Exposes response headers to WASM/JavaScript");
     println!("   - Handles preflight OPTIONS requests locally");
     println!("   - Prevents duplicate CORS headers by cleaning upstream headers");
     println!("   - Supports MCP headers (mcp-session-id, mcp-client-version, etc.)");
@@ -365,6 +397,8 @@ fn main() -> anyhow::Result<()> {
     println!("   # MCP preflight with mcp-session-id header (fixes TODO.md issue)");
     println!("   curl -v -X OPTIONS -H 'Origin: https://example.com' -H 'Access-Control-Request-Method: POST' \\");
     println!("        -H 'Access-Control-Request-Headers: mcp-session-id,content-type,authorization' http://{}/", bind_addr);
+    println!("   # Test response header exposure (key TODO.md fix)");
+    println!("   curl -v -H 'Origin: https://example.com' http://{}/headers | grep -i 'access-control-expose-headers'", bind_addr);
     
     // Create Server instance, register service, and start
     let mut server = Server::new(None)?;
