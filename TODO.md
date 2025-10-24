@@ -1,46 +1,42 @@
-# ✅ SOLVED: CORS Proxy Duplicate Headers Issue
+# ✅ RESOLVED: Generic CORS Header Solution
 
-## Problem Description
+~~Request header field mcp-session-id is not allowed by Access-Control-Allow-Headers in preflight response.~~
 
-I was building a WASM application that connects to a GitHub MCP server. When trying to initialize the MCP connection from the browser, it automatically appends an Origin header. This resulted in two `Access-Control-Allow-Origin` headers being set, which caused the browser to block the response.
+## Solution Implemented
 
-## Issue Details
+A generic, configurable CORS header solution has been implemented in `src/bin/cors_proxy.rs` that:
 
-**Reproduction Command:**
+### 🎯 Fixes the MCP Session ID Issue
+- **Default Support**: `mcp-session-id`, `mcp-client-version`, and `mcp-protocol-version` headers are now included by default
+- **Immediate Fix**: No configuration required - works out of the box for MCP applications
+
+### 🔧 Configurable Options
+- **Environment Variables**:
+  - `CORS_ALLOWED_HEADERS` - Custom comma-separated list of allowed headers
+  - `CORS_ALLOW_ANY_HEADERS=true` - Wildcard support for maximum compatibility
+
+### 📋 Default Headers Included
+The proxy now supports these headers by default:
+- Standard: `origin`, `content-type`, `accept`, `authorization`, `x-requested-with`
+- **MCP Headers**: `mcp-session-id`, `mcp-client-version`, `mcp-protocol-version`
+- Common Custom: `x-api-key`, `x-client-id`, `x-session-id`, `x-correlation-id`
+- Auth Headers: `x-auth-token`, `x-access-token`, `x-refresh-token`
+- Cache Headers: `if-match`, `if-none-match`, `if-modified-since`, etc.
+
+### 🧪 Verified Working
+✅ Preflight OPTIONS requests with `mcp-session-id` header
+✅ Actual requests with MCP headers pass through correctly
+✅ Wildcard configuration allows any custom headers
+✅ Backwards compatible with existing applications
+
+### 🚀 Usage Examples
 ```bash
-curl 'https://api.githubcopilot.com/mcp/' \
-  -H 'accept: */*' \
-  -H 'authorization: Bearer ?' \
-  -H 'content-type: application/json' \
-  -H 'origin: https://example.com' \
-  --data-raw '{"jsonrpc":"2.0","id":"88712028-eaaa-4d92-7241-fe9964f5d322","method":"initialize","params":{"capabilities":{"tools":{}},"clientInfo":{"name":"LLM Playground","version":"1.0.0"},"protocolVersion":"2024-11-05"}}' -v 
-```
+# Default (includes mcp-session-id)
+cargo run --bin cors-proxy
 
-**Problem:** Two duplicate headers
-```
-access-control-allow-origin: *
-access-control-allow-origin: *
-```
+# Wildcard (most permissive)
+CORS_ALLOW_ANY_HEADERS=true cargo run --bin cors-proxy
 
-**Expected:** Only one header
-```
-access-control-allow-origin: *
-```
-
-## ✅ Solution Implemented
-
-**File Modified:** `src/bin/cors_proxy.rs`
-
-**Key Changes:**
-1. **Header Cleanup**: Remove ALL existing CORS headers from upstream responses before adding new ones
-2. **Wildcard CORS Policy**: Always set `Access-Control-Allow-Origin: *` to allow all origins
-3. **Preflight Support**: Handle OPTIONS requests locally with proper CORS headers
-4. **Authorization Support**: Properly handle complex requests with authorization headers
-
-**Test Results:** ✅ All scenarios now return exactly one `Access-Control-Allow-Origin` header
-
-**Usage for GitHub MCP Server:**
-```bash
-UPSTREAM_ADDR=api.githubcopilot.com:443 cargo run --bin cors-proxy
-# Then access via: http://127.0.0.1:6189/mcp/
+# Custom headers only
+CORS_ALLOWED_HEADERS="content-type,authorization,mcp-session-id" cargo run --bin cors-proxy
 ```

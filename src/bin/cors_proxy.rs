@@ -12,6 +12,8 @@ pub struct CorsCtx;
 pub struct CorsProxy {
     upstream_addr: String,
     use_tls: bool,
+    allowed_headers: String,
+    allow_any_headers: bool,
 }
 
 impl CorsProxy {
@@ -23,15 +25,58 @@ impl CorsProxy {
         // Determine if we should use TLS
         let use_tls = Self::determine_tls_usage(&upstream_addr);
         
+        // Configure CORS headers policy
+        let (allowed_headers, allow_any_headers) = Self::configure_cors_headers();
+        
         println!("🔧 CORS Proxy Configuration:");
         println!("   Upstream: {}", upstream_addr);
         println!("   Use TLS: {}", use_tls);
         println!("   CORS Policy: Allow all origins (*)");
+        println!("   Allowed Headers: {}", if allow_any_headers { "*" } else { &allowed_headers });
         
         Ok(Self {
             upstream_addr,
             use_tls,
+            allowed_headers,
+            allow_any_headers,
         })
+    }
+    
+    /// Configure CORS headers policy based on environment variables
+    fn configure_cors_headers() -> (String, bool) {
+        // Check if we should allow any headers (wildcard)
+        let allow_any = env::var("CORS_ALLOW_ANY_HEADERS")
+            .map(|v| v.to_lowercase() == "true" || v == "1")
+            .unwrap_or(false);
+        
+        if allow_any {
+            return ("*".to_string(), true);
+        }
+        
+        // Get custom headers from environment, or use comprehensive defaults
+        let default_headers = vec![
+            // Standard headers
+            "origin", "content-type", "accept", "authorization", "x-requested-with",
+            // MCP specific headers (fixes the TODO.md issue)
+            "mcp-session-id", "mcp-client-version", "mcp-protocol-version",
+            // Common custom headers
+            "x-api-key", "x-client-id", "x-session-id", "x-correlation-id",
+            "x-request-id", "x-trace-id", "x-user-id", "x-tenant-id",
+            // Authentication headers
+            "x-auth-token", "x-access-token", "x-refresh-token",
+            // Cache and conditional headers
+            "if-match", "if-none-match", "if-modified-since", "if-unmodified-since",
+            "cache-control", "pragma",
+            // Content headers
+            "content-encoding", "content-language", "content-range",
+            // CORS extension headers
+            "access-control-request-headers", "access-control-request-method"
+        ].join(", ");
+        
+        let headers = env::var("CORS_ALLOWED_HEADERS")
+            .unwrap_or(default_headers);
+            
+        (headers, false)
     }
     
     /// Determine if TLS should be used based on upstream address and environment
@@ -158,7 +203,14 @@ impl ProxyHttp for CorsProxy {
                 let mut response = ResponseHeader::build(200, None)?;
                 response.insert_header("access-control-allow-origin", "*")?;
                 response.insert_header("access-control-allow-methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD")?;
-                response.insert_header("access-control-allow-headers", "origin, content-type, accept, authorization, x-requested-with")?;
+                
+                // Use configurable headers policy
+                if self.allow_any_headers {
+                    response.insert_header("access-control-allow-headers", "*")?;
+                } else {
+                    response.insert_header("access-control-allow-headers", &self.allowed_headers)?;
+                }
+                
                 response.insert_header("access-control-max-age", "86400")?; // 24 hours
                 response.insert_header("content-length", "0")?;
                 response.insert_header("x-cors-proxy", "rust-pingora")?;
@@ -223,7 +275,14 @@ impl ProxyHttp for CorsProxy {
         // This fixes the duplicate header issue by ensuring only one is set
         upstream_response.insert_header("access-control-allow-origin", "*")?;
         upstream_response.insert_header("access-control-allow-methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD")?;
-        upstream_response.insert_header("access-control-allow-headers", "origin, content-type, accept, authorization, x-requested-with")?;
+        
+        // Use configurable headers policy
+        if self.allow_any_headers {
+            upstream_response.insert_header("access-control-allow-headers", "*")?;
+        } else {
+            upstream_response.insert_header("access-control-allow-headers", &self.allowed_headers)?;
+        }
+        
         upstream_response.insert_header("access-control-max-age", "86400")?; // 24 hours
         
         // Log the origin for debugging
@@ -263,12 +322,16 @@ fn main() -> anyhow::Result<()> {
     println!("   UPSTREAM_ADDR - Target service address (default: httpbin.org:80)");
     println!("   UPSTREAM_TLS - Force TLS usage (true/false, auto-detected if not set)");
     println!("   PROXY_PORT - Port to listen on (default: 6189)");
+    println!("   CORS_ALLOWED_HEADERS - Custom allowed headers (comma-separated)");
+    println!("   CORS_ALLOW_ANY_HEADERS - Allow any headers with wildcard (true/false)");
     println!();
     println!("🛡️  CORS Policy:");
     println!("   - Access-Control-Allow-Origin: * (allows all origins)");
     println!("   - Handles preflight OPTIONS requests locally");
     println!("   - Prevents duplicate CORS headers by cleaning upstream headers");
-    println!("   - Supports complex requests with authorization headers");
+    println!("   - Supports MCP headers (mcp-session-id, mcp-client-version, etc.)");
+    println!("   - Includes common custom headers (x-api-key, x-session-id, etc.)");
+    println!("   - Configurable via environment variables");
     println!();
     println!("📝 Example usage:");
     println!("   # HTTP upstream");
@@ -279,6 +342,10 @@ fn main() -> anyhow::Result<()> {
     println!("   UPSTREAM_ADDR=api.githubcopilot.com:443 cargo run --bin cors-proxy");
     println!("   # HTTPS upstream (explicit TLS)");
     println!("   UPSTREAM_ADDR=secure-api.com:8080 UPSTREAM_TLS=true cargo run --bin cors-proxy");
+    println!("   # Allow any headers (wildcard - most permissive)");
+    println!("   CORS_ALLOW_ANY_HEADERS=true cargo run --bin cors-proxy");
+    println!("   # Custom headers only");
+    println!("   CORS_ALLOWED_HEADERS=\"content-type,authorization,mcp-session-id\" cargo run --bin cors-proxy");
     println!();
     println!("🔒 TLS Auto-detection:");
     println!("   - Ports 443, 8443, 9443 automatically use TLS");
@@ -295,6 +362,9 @@ fn main() -> anyhow::Result<()> {
     println!("   # GitHub MCP Server test (reproduces TODO.md scenario)");
     println!("   curl -v -H 'Origin: https://example.com' -H 'Authorization: Bearer TOKEN' -H 'Content-Type: application/json' \\");
     println!("        --data '{{\"jsonrpc\":\"2.0\",\"id\":\"test\",\"method\":\"initialize\"}}' http://{}/mcp/", bind_addr);
+    println!("   # MCP preflight with mcp-session-id header (fixes TODO.md issue)");
+    println!("   curl -v -X OPTIONS -H 'Origin: https://example.com' -H 'Access-Control-Request-Method: POST' \\");
+    println!("        -H 'Access-Control-Request-Headers: mcp-session-id,content-type,authorization' http://{}/", bind_addr);
     
     // Create Server instance, register service, and start
     let mut server = Server::new(None)?;
